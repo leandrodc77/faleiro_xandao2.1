@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Duelo das Sinapses 2.1</title>
+<style>
+  body { margin:0; background:#000; color:#fff; font-family:sans-serif; }
+  canvas { display:block; margin:0 auto; background:#111; }
+  #question-card { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); background:#222; padding:20px; border:3px solid #fff; max-width:400px; display:none; }
+  .life-bar-container { width: 300px; height: 20px; border: 2px solid #fff; background: #444; }
+  .life-bar { height: 100%; background: linear-gradient(to right, #0f0, #ff0, #f00); }
+  button { display:block; margin:5px 0; width:100%; }
+</style>
+</head>
+<body>
+<canvas id="gameCanvas" width="800" height="600"></canvas>
+<div style="position:absolute;top:10px;left:50px;">
+  Jogador
+  <div class="life-bar-container"><div id="playerLife" class="life-bar" style="width:100%"></div></div>
+</div>
+<div style="position:absolute;top:10px;right:50px;">
+  Xandão
+  <div class="life-bar-container"><div id="enemyLife" class="life-bar" style="width:100%"></div></div>
+</div>
+<div id="question-card">
+  <p id="question-text"></p>
+  <div id="options"></div>
+  <p id="explanation" style="display:none;"></p>
+</div>
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+let player = { x: 50, y: 500, w: 50, h: 50, hp:100 };
+let enemy = { x: 700, y: 50, w: 50, h: 50, hp:100 };
+let scoreHits = 0;
+
+const imgPlayer = new Image();
+imgPlayer.src = 'assets/img/faleiro-face.png';
+const imgEnemy = new Image();
+imgEnemy.src = 'assets/img/xandao-face.png';
+
+const sfxShot = new Audio('assets/audio/shot.wav');
+const sfxEnemyShot = new Audio('assets/audio/enemy_shot.wav');
+const sfxHit = new Audio('assets/audio/hit.wav');
+const sfxExplode = new Audio('assets/audio/explode.wav');
+
+const questions = [
+  {q:"Otite média aguda...", options:["Azitromicina VO","Amoxicilina VO","Ceftriaxona","Amoxi+clav"], answer:1, explanation:"B. Amoxicilina é primeira linha..."},
+  // adicionar as demais questões
+];
+
+function draw(){
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.drawImage(imgPlayer, player.x, player.y, player.w, player.h);
+  ctx.drawImage(imgEnemy, enemy.x, enemy.y, enemy.w, enemy.h);
+}
+
+function updateLifeBars(){
+  document.getElementById('playerLife').style.width = player.hp + '%';
+  document.getElementById('enemyLife').style.width = enemy.hp + '%';
+}
+
+function spawnQuestion(){
+  const qIndex = Math.floor(Math.random()*questions.length);
+  const q = questions[qIndex];
+  const card = document.getElementById('question-card');
+  document.getElementById('question-text').textContent = q.q;
+  const opts = document.getElementById('options');
+  opts.innerHTML='';
+  document.getElementById('explanation').style.display = 'none';
+  q.options.forEach((opt,i)=>{
+    const btn = document.createElement('button');
+    btn.textContent = String.fromCharCode(65+i)+') '+opt;
+    btn.onclick = ()=>{
+      if(i===q.answer){ enemy.hp -= 20; alert('Correto!'); }
+      else { player.hp -= 50; alert('Errado!'); }
+      updateLifeBars();
+      document.getElementById('explanation').textContent = q.explanation;
+      document.getElementById('explanation').style.display = 'block';
+      setTimeout(()=>{ card.style.display='none'; }, 3000);
+    };
+    opts.appendChild(btn);
+  });
+  card.style.display='block';
+}
+
+canvas.addEventListener('click',()=>{
+  scoreHits++;
+  if(scoreHits % 5 === 0){ spawnQuestion(); }
+});
+
+function gameLoop(){
+  draw();
+  requestAnimationFrame(gameLoop);
+}
+
+updateLifeBars();
+gameLoop();
+</script>
+</body>
+</html>
