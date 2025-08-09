@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang=\"pt-br\">
+<head>
+<meta charset=\"UTF-8\" />
+<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
+<title>Duelo das Sinapses — v2.1 (Faleiro x Xandão)</title>
+<style>
+  :root{ --bg:#0b0f14; --fg:#eaf2ff; --panel:#111; --accent:#7ee787; --accent2:#ff9e64; }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:#000;color:var(--fg);font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial}
+  .wrap{max-width:1000px;margin:0 auto;padding:10px}
+  header{display:flex;align-items:center;justify-content:space-between;gap:12px}
+  .btn{border:1px solid #2a3b4d;background:#0e1620;color:#eaf2ff;padding:8px 12px;border-radius:10px;cursor:pointer;font-weight:600}
+  .btn:hover{background:#16293c}
+  .row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .bars{display:flex;justify-content:space-between;align-items:flex-start}
+  .life-ct{width:340px}
+  .life-ct h4{margin:0 0 4px 0;font-weight:600}
+  .life{width:100%;height:18px;border:2px solid #fff;background:#333;border-radius:4px;overflow:hidden}
+  .life>div{height:100%;background:linear-gradient(90deg,#19ff19,#ffe600,#ff7a00,#ff0000);width:100%}
+  .stage{position:relative;margin-top:8px;background:#101010;border-radius:14px;border:1px solid #1b2836;box-shadow:0 8px 30px rgba(0,0,0,.45), inset 0 0 0 2px #13202e}
+  canvas{display:block;width:100%;height:auto;border-radius:14px}
+  .overlay{position:absolute;inset:0;display:none;align-items:center;justify-content:center}
+  .card{max-width:760px;width:92%;background:#0b1521;border:1px solid #274157;border-radius:16px;padding:16px;box-shadow:0 12px 40px rgba(0,0,0,.5)}
+  .card h2{margin:0 0 8px}
+  .kbd{background:#0d1520;border:1px solid #22364b;padding:2px 6px;border-radius:6px;font-family:ui-monospace,Menlo,Consolas}
+  .choices{display:grid;grid-template-columns:1fr;gap:8px;margin-top:10px}
+  .choices button{border:1px solid #274157;background:#0e1a27;color:#eaf2ff;padding:10px;border-radius:10px;text-align:left;font-weight:600;cursor:pointer}
+  .choices button:hover{background:#132236}
+  .muted{opacity:.9}
+</style>
+</head>
+<body>
+  <div class=\"wrap\">
+    <header>
+      <div class=\"row\">
+        <button id=\"btnStart\" class=\"btn\">▶️ Iniciar</button>
+        <button id=\"btnPause\" class=\"btn\">⏸️ Pausar</button>
+        <button id=\"btnMute\" class=\"btn\" aria-pressed=\"false\">🔊 Som</button>
+        <span class=\"muted\">Controles: <span class=\"kbd\">←</span> <span class=\"kbd\">→</span> mover · <span class=\"kbd\">Espaço</span> atirar · <span class=\"kbd\">P</span> pausa</span>
+      </div>
+      <div class=\"row\">
+        <span>Acertos no Xandão: <strong id=\"hits\">0</strong></span>
+        <span>Pontos: <strong id=\"score\">0</strong></span>
+        <span>Nível: <strong id=\"level\">1</strong></span>
+      </div>
+    </header>
+
+    <div class=\"bars\">
+      <div class=\"life-ct\"><h4>Jogador</h4><div class=\"life\"><div id=\"lifePlayer\" style=\"width:100%\"></div></div></div>
+      <div class=\"life-ct\" style=\"text-align:right\"><h4 style=\"text-align:right\">Xandão</h4><div class=\"life\"><div id=\"lifeEnemy\" style=\"width:100%\"></div></div></div>
+    </div>
+
+    <div class=\"stage\">
+      <canvas id=\"game\" width=\"900\" height=\"600\"></canvas>
+
+      <div id=\"quizOverlay\" class=\"overlay\">
+        <div class=\"card\">
+          <h2>🧪 Pergunta (Antibióticos na Pediatria)</h2>
+          <p id=\"quizQ\" class=\"muted\"></p>
+          <div id=\"quizChoices\" class=\"choices\"></div>
+          <p id=\"quizExplain\" class=\"muted\" style=\"display:none;margin-top:8px\"></p>
+          <div class=\"row\" style=\"margin-top:10px\"><button id=\"btnContinuar\" class=\"btn\" style=\"display:none\">Continuar</button></div>
+        </div>
+      </div>
+
+      <div id=\"overOverlay\" class=\"overlay\">
+        <div class=\"card\">
+          <h2 id=\"overTitle\">Fim de Jogo</h2>
+          <p id=\"overDesc\" class=\"muted\"></p>
+          <div class=\"row\"><button id=\"btnAgain\" class=\"btn\">Jogar novamente</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+<script>
+const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+const rand=(a,b)=>Math.random()*(b-a)+a;
+
+const SFX = { shot:new Audio('./assets/audio/shot.wav'), enemyShot:new Audio('./assets/audio/enemy_shot.wav'), hit:new Audio('./assets/audio/hit.wav'), explode:new Audio('./assets/audio/explode.wav') };
+Object.values(SFX).forEach(a=>{ a.preload='auto'; a.volume=0.6; });
+let muted=false; const play=(a)=>{ if(!muted){ try{ a.currentTime=0; a.play(); }catch(_){} } };
+
+const cvs=document.getElementById('game');
+const c=cvs.getContext('2d');
+
+const IMG_FALEIRO=new Image(); IMG_FALEIRO.src='./assets/img/faleiro-face.png';
+const IMG_XANDAO =new Image(); IMG_XANDAO.src ='./assets/img/xandao-face.png';
+
+const HUD={hits:document.getElementById('hits'), score:document.getElementById('score'), level:document.getElementById('level'), lifeP:document.getElementById('lifePlayer'), lifeE:document.getElementById('lifeEnemy')};
+const OVER={box:document.getElementById('overOverlay'), title:document.getElementById('overTitle'), desc:document.getElementById('overDesc')};
+const QUIZ={box:document.getElementById('quizOverlay'), q:document.getElementById('quizQ'), choices:document.getElementById('quizChoices'), exp:document.getElementById('quizExplain'), cont:document.getElementById('btnContinuar')};
+
+const state={ running:false, paused:false, asking:false, score:0, level:1, hits:0 };
+const player={ x:cvs.width/2, y:cvs.height-70, w:28, h:36, vx:0, speed:420, hp:100, hpMax:100, lastShot:0, cd:220 };
+const enemy ={ x:cvs.width/2, y:90, w:40, h:48, vx:180, hp:100, hpMax:100, lastShot:0, cd:650 };
+
+const keys={ left:false, right:false, fire:false };
+const bullets=[];
+const parts=[];
+
+let hitsSinceCard=0;
+
+const questions=[
+  {q:'Otite média aguda (OMA) em lactente...', options:['Azitromicina VO','Amoxicilina VO','Ceftriaxona IM dose única','Amoxicilina + clavulanato VO'], a:1, exp:'Amoxicilina é primeira linha.'},
+  {q:'PAC não grave...', options:['Claritromicina','Amoxicilina','Cefalexina','Levofloxacino'], a:1, exp:'Amoxicilina em pré-escolar.'}
+];
+
+let qOrder=[]; const shuffle=arr=>arr.sort(()=>Math.random()-0.5);
+function prepareQuizOrder(){ qOrder = shuffle([...Array(questions.length).keys()]); }
+
+function face(img,x,y,r){
+  const ctx=c;
+  ctx.save(); ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.closePath(); ctx.clip();
+  if(img.complete && img.naturalWidth>0){ ctx.drawImage(img, x-r, y-r, r*2, r*2); }
+  else { const g=ctx.createLinearGradient(x-r,y-r,x+r,y+r); g.addColorStop(0,'#1b2a3a'); g.addColorStop(1,'#274157'); ctx.fillStyle=g; ctx.fillRect(x-r,y-r,r*2,r*2); }
+  ctx.restore();
+}
+
+function draw(){
+  c.fillStyle='#000'; c.fillRect(0,0,cvs.width,cvs.height);
+  for(let i=0;i<40;i++){ c.fillStyle = `rgba(255,255,255,${0.05+((i%7)/20)})`; c.fillRect((i*97)%cvs.width, (i*53 + (performance.now()/40))%cvs.height, 2, 2); }
+  face(IMG_FALEIRO, player.x, player.y-10, 14); c.fillStyle='#9ec9ff'; c.fillRect(player.x-18, player.y+8, 36, 28);
+  face(IMG_XANDAO, enemy.x, enemy.y-12, 16); c.fillStyle='#6f8a9b'; c.fillRect(enemy.x-22, enemy.y+6, 44, 30); c.fillStyle='#79d4ff'; c.fillRect(enemy.x+30, enemy.y, 8, 4);
+  c.fillStyle='#aaf0a5'; bullets.filter(b=>b.from==='p').forEach(b=>{ c.beginPath(); c.arc(b.x,b.y,5,0,Math.PI*2); c.fill(); });
+  c.fillStyle='#ff6b6b'; bullets.filter(b=>b.from==='e').forEach(b=>{ c.fillRect(b.x-2,b.y-6,4,12); });
+  parts.forEach(p=>{ c.fillStyle=p.color; c.fillRect(p.x,p.y,2,2); });
+}
+
+def_count = 0
+def_count += 1
+
+function updateHUD(){ HUD.hits.textContent=state.hits; HUD.score.textContent=state.score; HUD.level.textContent=state.level; HUD.lifeP.style.width=player.hp+'%'; HUD.lifeE.style.width=enemy.hp+'%'; }
+function shootP(){ const now=performance.now(); if(now-player.lastShot<player.cd) return; player.lastShot=now; bullets.push({x:player.x,y:player.y-24,vy:-560,r:5,from:'p'}); play(SFX.shot); }
+function shootE(){ const now=performance.now(); if(now-enemy.lastShot<enemy.cd) return; enemy.lastShot=now; bullets.push({x:enemy.x,y:enemy.y+24,vy: 240+state.level*24,r:5,from:'e'}); play(SFX.enemyShot); }
+function explode(x,y,color){ for(let i=0;i<14;i++){ parts.push({x,y,vx:rand(-120,120),vy:rand(-160,0),life:500+Math.random()*400,color}); } }
+function damagePlayer(pct){ player.hp = clamp(player.hp - pct, 0, player.hpMax); updateHUD(); if(player.hp<=0) gameOver(false); }
+function damageEnemy(pct){ enemy.hp = clamp(enemy.hp - pct, 0, enemy.hpMax); updateHUD(); if(enemy.hp<=0) gameOver(true); }
+
+function openQuiz(){ if(state.asking) return; state.asking=true; QUIZ.exp.style.display='none'; QUIZ.cont.style.display='none';
+  if(qOrder.length===0) prepareQuizOrder(); const qi=qOrder.pop(); const q=questions[qi]; QUIZ.q.textContent=q.q; QUIZ.choices.innerHTML='';
+  q.options.forEach((opt,i)=>{ const btn=document.createElement('button'); btn.className='btn'; btn.textContent=`${String.fromCharCode(65+i)}) ${opt}`; btn.onclick=()=> answerQuiz(i===q.a,q.exp); QUIZ.choices.appendChild(btn); });
+  QUIZ.box.style.display='flex';
+}
+function answerQuiz(correct, exp){
+  if(correct){ damageEnemy(20); play(SFX.hit); }
+  else { damagePlayer(50); play(SFX.explode); }
+  QUIZ.exp.textContent = (correct?'✅ Correto. ':'❌ Errado. ') + exp; QUIZ.exp.style.display='block'; QUIZ.cont.style.display='inline-block';
+}
+QUIZ.cont?.addEventListener('click', ()=>{ QUIZ.box.style.display='none'; state.asking=false; });
+
+function gameOver(win){ state.running=false; OVER.title.textContent = win? '🏆 Você venceu!':'💀 Game Over'; OVER.desc.textContent = `Pontuação ${state.score}`; OVER.box.style.display='flex'; }
+function reset(){ state.running=true; state.paused=false; OVER.box.style.display='none'; QUIZ.box.style.display='none';
+  state.score=0; state.level=1; state.hits=0; hitsSinceCard=0; bullets.length=0; parts.length=0; qOrder.length=0;
+  player.x=cvs.width/2; player.hp=player.hpMax; enemy.x=cvs.width/2; enemy.hp=enemy.hpMax; updateHUD(); }
+
+let last=performance.now();
+function loop(now){ const dt=(now-last)/1000; last=now; if(state.running && !state.paused && !state.asking){
+    const dir=(keys.left?-1:0)+(keys.right?1:0); player.x = Math.max(24, Math.min(player.x + dir*player.speed*dt, cvs.width-24)); if(keys.fire) shootP();
+    enemy.x += enemy.vx*dt; if(enemy.x<50||enemy.x>cvs.width-50) enemy.vx*=-1; if(Math.random()<0.006+state.level*0.0008) shootE();
+    for(let i=bullets.length-1;i>=0;i--){ const b=bullets[i]; b.y += b.vy*dt; if(b.y<-40||b.y>cvs.height+40){ bullets.splice(i,1); continue; }
+      if(b.from==='p'){ if(Math.abs(b.x-enemy.x)<(enemy.w/2+b.r) && Math.abs(b.y-enemy.y)<(enemy.h/2+b.r)){ bullets.splice(i,1); state.score+=5; state.hits++; hitsSinceCard++; explode(b.x,b.y,'#ffd16b'); play(SFX.hit); if(hitsSinceCard>=5){ hitsSinceCard=0; openQuiz(); } } }
+      else { if(Math.abs(b.x-player.x)<(player.w/2+b.r) && Math.abs(b.y-player.y)<(player.h/2+b.r)){ bullets.splice(i,1); damagePlayer(10); explode(player.x,player.y,'#ff6b6b'); } }
+    }
+    for(let i=parts.length-1;i>=0;i--){ const p=parts[i]; p.x+=p.vx*dt; p.y+=p.vy*dt; p.vy+=380*dt; p.life-=dt*1000; if(p.life<=0) parts.splice(i,1); }
+    if(state.score>0 && state.score % 120===0){ state.level++; }
+    updateHUD();
+  }
+  draw(); requestAnimationFrame(loop);
+}
+const keys={ left:false, right:false, fire:false };
+window.addEventListener('keydown',e=>{ if(e.repeat) return; if(e.code==='ArrowLeft'||e.code==='KeyA') keys.left=true; if(e.code==='ArrowRight'||e.code==='KeyD') keys.right=true; if(e.code==='Space'){ keys.fire=true; e.preventDefault(); } if(e.code==='KeyP'){ if(state.running) state.paused=!state.paused; } });
+window.addEventListener('keyup',e=>{ if(e.code==='ArrowLeft'||e.code==='KeyA') keys.left=false; if(e.code==='ArrowRight'||e.code==='KeyD') keys.right=false; if(e.code==='Space') keys.fire=false; });
+
+document.getElementById('btnStart').addEventListener('click',()=>{ reset(); });
+document.getElementById('btnAgain').addEventListener('click',()=> reset());
+document.getElementById('btnPause').addEventListener('click',()=>{ if(state.running) state.paused=!state.paused; });
+document.getElementById('btnMute').addEventListener('click',e=>{ muted=!muted; e.currentTarget.textContent = muted? '🔇 Sem som':'🔊 Som'; });
+
+prepareQuizOrder(); updateHUD(); requestAnimationFrame(loop);
+</script>
+</body>
+</html>
